@@ -4,6 +4,7 @@ import android.Manifest;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.PixelFormat;
 import android.graphics.RectF;
 import android.os.Bundle;
 import android.support.v4.app.ActivityCompat;
@@ -14,25 +15,21 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.Toast;
 
-import com.segway.robot.sdk.vision.BindStateListener;
-import com.segway.robot.sdk.vision.Vision;
-import com.segway.robot.sdk.vision.calibration.RS2Intrinsic;
-import com.segway.robot.sdk.vision.frame.Frame;
-import com.segway.robot.sdk.vision.stream.PixelFormat;
-import com.segway.robot.sdk.vision.stream.Resolution;
-import com.segway.robot.sdk.vision.stream.VisionStreamType;
-
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements CameraManager.DataCallback {
 
     private static final String TAG = MainActivity.class.getSimpleName();
     private static final String LOCAL_IMAGE_PATH = "sdcard/apple.jpeg";
     private static final int REQUEST_CODE = 1;
-    private static String[] PERMISSIONS_STORAGE = {"android.permission.READ_EXTERNAL_STORAGE",
-            "android.permission.WRITE_EXTERNAL_STORAGE"};
+    private static String[] PERMISSIONS_STORAGE = new String[]{
+            Manifest.permission.CAMERA,
+            Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            Manifest.permission.RECORD_AUDIO
+    };
     private static final int BITMAP_SCALE = 4;
     private VisionImageView mImageView;
     private volatile boolean mIsBind;
@@ -54,6 +51,7 @@ public class MainActivity extends AppCompatActivity {
     private List<RectF> mRectList = new ArrayList<>();
     private int mImageViewWidth;
     private int mImageViewHeight;
+    private CameraManager mCameraManager;
 
     static {
         System.loadLibrary("vision_aibox");
@@ -204,48 +202,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void bindAndStartVision() {
-        //bind Vision Service
-        boolean ret = Vision.getInstance().bindService(this, new BindStateListener() {
-            @Override
-            public void onBind() {
-                Log.d(TAG, "onBind");
-                mIsBind = true;
-                try {
-                    //Obtain internal calibration data
-                    RS2Intrinsic intrinsics = Vision.getInstance().getIntrinsics(VisionStreamType.FISH_EYE);
-                    Log.d(TAG, "intrinsics: " + intrinsics);
-                    Vision.getInstance().startVision(VisionStreamType.FISH_EYE);
-
-                    mVisionWorkThread = new VisionWorkThread();
-                    mVisionWorkThread.start();
-                    mBtnOpenCamera.setEnabled(false);
-                    mBtnStart.setEnabled(true);
-                    mBtnCloseCamera.setEnabled(true);
-
-                } catch (Exception e) {
-                    Log.d(TAG, "error:", e);
-                }
-            }
-
-            @Override
-            public void onUnbind(String reason) {
-                Log.d(TAG, "onUnbind");
-                mIsBind = false;
-                mBtnOpenCamera.setEnabled(true);
-            }
-        });
-        if (!ret) {
-            Log.d(TAG, "Vision Service does not exist");
+        if (mCameraManager == null) {
+            mCameraManager = new CameraManager(this);
+            mCameraManager.setDataCallback(this);
+            mCameraManager.openCamera(1920, 1080);
         }
+
     }
 
     private void unbindAndStopVision() {
-        try {
-            Vision.getInstance().stopVision(VisionStreamType.FISH_EYE);
-        } catch (Exception e) {
-            Log.d(TAG, "error:", e);
+        if (mCameraManager != null) {
+            mCameraManager.closeCamera();
+            mCameraManager = null;
         }
-        Vision.getInstance().unbindService();
     }
 
     private void showImage() {
@@ -260,7 +229,7 @@ public class MainActivity extends AppCompatActivity {
                                     result.x2 / BITMAP_SCALE, result.y2 / BITMAP_SCALE));
                         }
                     }
-                    if(mBitmap != null) {
+                    if (mBitmap != null) {
                         int width = mBitmap.getWidth() / BITMAP_SCALE;
                         int height = mBitmap.getHeight() / BITMAP_SCALE;
                         if (width != mImageViewWidth || height != mImageViewHeight) {
@@ -278,6 +247,24 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+    }
+
+    @Override
+    public void onCallback(ByteBuffer buffer, int width, int height) {
+        synchronized (mBitmapLock) {
+            if (mBitmap == null) {
+                mBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            }
+        }
+        byte[] buff = new byte[buffer.limit()];
+        buffer.position(0);
+        buffer.get(buff);
+        synchronized (mBitmapLock) {
+            yuv2RGBBitmap(buff, mBitmap, width, height);
+        }
+        if (mBitmap != null) {
+            showImage();
+        }
     }
 
     class ImageWorkThread extends Thread {
@@ -304,7 +291,7 @@ public class MainActivity extends AppCompatActivity {
                         Bitmap bitmap = mBitmap.copy(mBitmap.getConfig(), true);
                         mBitmap.copyPixelsToBuffer(mData);
                         mBitmap = bitmap;
-                        mDetectedResults = VisionNative.nativeDetect(mData, PixelFormat.RGBA8888, mBitmap.getWidth(), mBitmap.getHeight());
+                        mDetectedResults = VisionNative.nativeDetect(mData, 1, mBitmap.getWidth(), mBitmap.getHeight());
                     } else {
                         mDetectedResults = null;
                     }
@@ -326,73 +313,6 @@ public class MainActivity extends AppCompatActivity {
             mDetectedResults = null;
         }
         showImage();
-    }
-
-    class VisionWorkThread extends Thread {
-        @Override
-        public void run() {
-            while (mIsCameraStarted && mIsBind) {
-                long startTs = System.currentTimeMillis();
-                try {
-                    Frame frame = Vision.getInstance().getLatestFrame(VisionStreamType.FISH_EYE);
-                    Log.d(TAG, "ts: " + frame.getInfo().getPlatformTimeStamp() + "  " + frame.getInfo().getIMUTimeStamp());
-                    int resolution = frame.getInfo().getResolution();
-                    int width = Resolution.getWidth(resolution);
-                    int height = Resolution.getHeight(resolution);
-                    synchronized (mBitmapLock) {
-                        if (mBitmap == null) {
-                            mBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-                        }
-                    }
-                    int pixelFormat = frame.getInfo().getPixelFormat();
-                    if (pixelFormat == PixelFormat.YUV420 || pixelFormat == PixelFormat.YV12) {
-                        int limit = frame.getByteBuffer().limit();
-
-                        if (mIsDetecting) {
-                            if (mData == null || mData.capacity() != limit) {
-                                mData = ByteBuffer.allocateDirect(limit);
-                            }
-                            frame.getByteBuffer().position(0);
-                            mData.rewind();
-                            mData.put(frame.getByteBuffer());
-                            synchronized (mBitmapLock) {
-                                mDetectedResults = VisionNative.nativeDetect(mData, pixelFormat, width, height);
-                            }
-                        } else {
-                            synchronized (mBitmapLock) {
-                                mDetectedResults = null;
-                            }
-                        }
-                        byte[] buff = new byte[limit];
-                        frame.getByteBuffer().position(0);
-                        frame.getByteBuffer().get(buff);
-                        synchronized (mBitmapLock) {
-                            yuv2RGBBitmap(buff, mBitmap, width, height);
-                        }
-
-                    } else {
-                        Log.d(TAG, "An unsupported format");
-                    }
-                    if (mBitmap != null) {
-                        showImage();
-                    }
-                    Vision.getInstance().returnFrame(frame);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-                long endTs = System.currentTimeMillis();
-                long interval = 100 - (endTs - startTs);
-                if (interval > 0) {
-                    try {
-                        Thread.sleep(interval);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                }
-            }
-
-            clearBitmap();
-        }
     }
 
     private void yuv2RGBBitmap(byte[] data, Bitmap bitmap, int width, int height) {
