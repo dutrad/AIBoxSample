@@ -6,15 +6,18 @@ import android.content.Context;
 import android.graphics.ImageFormat;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
+import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
+import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
+import android.util.Size;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -59,7 +62,7 @@ public class CameraManager {
         mCameraId = "0";
         mWidth = width;
         mHeight = height;
-        mImageReader = ImageReader.newInstance(width, height, ImageFormat.YUV_420_888, 2);
+        mImageReader = ImageReader.newInstance(mWidth, mHeight, ImageFormat.JPEG, 5);
         mImageReader.setOnImageAvailableListener(mOnImageAvailableListener, mBackgroundHandler);
         android.hardware.camera2.CameraManager manager = (android.hardware.camera2.CameraManager) mActivity.getSystemService(Context.CAMERA_SERVICE);
         try {
@@ -67,6 +70,10 @@ public class CameraManager {
                 throw new RuntimeException("Time out waiting to lock camera opening.");
             }
             manager.openCamera(mCameraId, mStateCallback, mBackgroundHandler);
+//            CameraCharacteristics cameraCharacteristics = manager.getCameraCharacteristics(mCameraId);
+//            StreamConfigurationMap streamConfigurationMap = cameraCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+//            Size[] outputSizes = streamConfigurationMap.getOutputSizes(ImageFormat.JPEG);
+//            Log.d(TAG, "outputSizes: " + Arrays.toString(outputSizes));
         } catch (Exception e) {
             Log.e(TAG, "openCamera: ", e);
         }
@@ -197,11 +204,15 @@ public class CameraManager {
         if (image != null) {
             Log.d(TAG, "ts: " + image.getTimestamp());
             ByteBuffer ybuffer = image.getPlanes()[0].getBuffer();
-            ByteBuffer uvBuffer = image.getPlanes()[1].getBuffer();
-            ByteBuffer byteBuffer = ByteBuffer.allocate(mWidth * mHeight * 3 / 2);
+//            ByteBuffer uvBuffer = image.getPlanes()[1].getBuffer();
+//            byte[] datay = new byte[640 * 480];
+//            ybuffer.get(datay);
+//            byte[] datauv = new byte[640 * 480 / 2];
+//            uvBuffer.get(datauv);
+            ByteBuffer byteBuffer = ByteBuffer.allocate(ybuffer.remaining());
             byteBuffer.put(ybuffer);
-            byteBuffer.put(uvBuffer);
-            if(mDataCallback != null) {
+//            byteBuffer.put(datauv);
+            if (mDataCallback != null) {
                 mDataCallback.onCallback(byteBuffer, image.getWidth(), image.getHeight());
             }
             image.close();

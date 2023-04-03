@@ -251,17 +251,25 @@ public class MainActivity extends AppCompatActivity implements CameraManager.Dat
 
     @Override
     public void onCallback(ByteBuffer buffer, int width, int height) {
-        synchronized (mBitmapLock) {
-            if (mBitmap == null) {
-                mBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-            }
-        }
-        byte[] buff = new byte[buffer.limit()];
+//        synchronized (mBitmapLock) {
+//            if (mBitmap == null) {
+//                mBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+//            }
+//        }
+//        byte[] buff = new byte[buffer.limit()];
+//        buffer.position(0);
+//        buffer.get(buff);
+//        synchronized (mBitmapLock) {
+//            yuv2RGBBitmap(buff, mBitmap, width, height);
+//        }
+
         buffer.position(0);
-        buffer.get(buff);
+        byte[] data = new byte[buffer.capacity()];
+        buffer.get(data);
         synchronized (mBitmapLock) {
-            yuv2RGBBitmap(buff, mBitmap, width, height);
+            mBitmap = BitmapFactory.decodeByteArray(data, 0, data.length);
         }
+
         if (mBitmap != null) {
             showImage();
         }
