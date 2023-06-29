@@ -102,27 +102,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void onClick(View view) {
-        switch (view.getId()) {
-            case R.id.btn_open_image:
-                openImage();
-                break;
-            case R.id.btn_close_image:
-                closeImage();
-                break;
-            case R.id.btn_open_camera:
-                openCamera();
-                break;
-            case R.id.btn_close_camera:
-                closeCamera();
-                break;
-            case R.id.btn_start:
-                startDetect();
-                break;
-            case R.id.btn_stop:
-                stopDetect();
-                break;
-            default:
-                break;
+        int id = view.getId();
+        if (id == R.id.btn_open_image) {
+            openImage();
+        } else if (id == R.id.btn_close_image) {
+            closeImage();
+        } else if (id == R.id.btn_open_camera) {
+            openCamera();
+        } else if (id == R.id.btn_close_camera) {
+            closeCamera();
+        } else if (id == R.id.btn_start) {
+            startDetect();
+        } else if (id == R.id.btn_stop) {
+            stopDetect();
         }
     }
 

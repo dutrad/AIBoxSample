@@ -1,6 +1,7 @@
 apply plugin: 'com.android.application'
 
 android {
+    namespace 'com.segway.robot.sample.vision'
     compileSdkVersion 27
     buildToolsVersion '27.0.3'
 
